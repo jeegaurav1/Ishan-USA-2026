@@ -356,10 +356,14 @@
         <input type="text" class="form-control" id="f-class" placeholder="e.g. Business Class, Seat 1A">
       </div>
       <div class="form-group">
-        <label class="form-label">Attachment (PDF / image)</label>
-        <div class="file-drop" onclick="document.getElementById('f-file').click()">
-          📎 Click to attach confirmation / ticket
-          <input type="file" id="f-file" accept=".pdf,image/*" style="display:none" onchange="handleFile(event)">
+        <label class="form-label">Attachment</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <div class="file-drop" style="flex:1;min-width:160px;" onclick="document.getElementById('f-file').click()">
+            📎 Upload file
+            <input type="file" id="f-file" accept=".pdf,image/*" style="display:none" onchange="handleFile(event)">
+          </div>
+          <span style="font-size:11px;color:var(--text3);">or</span>
+          <input type="text" class="form-control" id="f-file-path" placeholder="pdfs/filename.pdf" style="flex:1;min-width:160px;" oninput="handleFilePath(event)">
         </div>
         <div class="file-name" id="file-name-display"></div>
       </div>
@@ -733,7 +737,7 @@ function getAttachBtns(e) {
       btns+=`<span class="attach-btn" onclick="openStaticPDF('${p.key}','${p.label}','${p.filename}')">📄 ${p.label}</span>`;
     });
   }
-  if(e.file && e.file.dataUrl) {
+  if(e.file && (e.file.dataUrl || e.file.path)) {
     const safe=(e.file.name||'attachment').replace(/'/g,'');
     btns+=`<span class="attach-btn" onclick="openUserPDF('${e.id}')">📎 ${safe}</span>`;
   }
@@ -742,7 +746,9 @@ function getAttachBtns(e) {
 
 function openUserPDF(entryId) {
   const e=entries.find(x=>x.id===entryId);
-  if(e&&e.file) openPDF(e.file.dataUrl,e.file.name,e.file.name);
+  if(!e||!e.file) return;
+  const src=e.file.dataUrl||e.file.path;
+  if(src) openPDF(src,e.file.name,e.file.name);
 }
 window.openUserPDF=openUserPDF;
 
@@ -884,12 +890,7 @@ window.deleteFromModal = async function() {
 
 // ── FIREBASE SYNC ─────────────────────────────────────────────────────────────
 async function seedIfEmpty() {
-  const snap = await get(entriesRef);
-  if(!snap.exists()) {
-    const batch={};
-    INITIAL_ENTRIES.forEach(e=>{ batch[e.id]=cleanForFirebase(e); });
-    await set(entriesRef, batch);
-  // Seed insurance doc if docs node is empty
+  // Always check and seed docs independently of entries
   const docsSnap = await get(docsRef);
   if (!docsSnap.exists()) {
     const insDataUrl = PDF_DATA['travel_insurance'];
@@ -905,6 +906,11 @@ async function seedIfEmpty() {
     }
   }
 
+  const snap = await get(entriesRef);
+  if(!snap.exists()) {
+    const batch={};
+    INITIAL_ENTRIES.forEach(e=>{ batch[e.id]=cleanForFirebase(e); });
+    await set(entriesRef, batch);
   } else {
     const existingData = snap.val() || {};
     for(const entry of INITIAL_ENTRIES) {
@@ -970,9 +976,10 @@ function openModal(id) {
     document.getElementById('f-class').value=e.classDetail||'';
     document.getElementById('f-comment').value=e.comment||'';
     document.getElementById('file-name-display').textContent=e.file?'📎 '+e.file.name:'';
+    document.getElementById('f-file-path').value=e.file&&e.file.path?e.file.path:'';
     selectedType=e.type||'';
   } else {
-    ['f-date','f-date-to','f-desc','f-cost','f-ref','f-class','f-comment'].forEach(fid=>document.getElementById(fid).value='');
+    ['f-date','f-date-to','f-desc','f-cost','f-ref','f-class','f-comment','f-file-path'].forEach(fid=>document.getElementById(fid).value='');
     document.getElementById('f-currency').value='USD';
     document.getElementById('f-status').value='confirmed';
     document.getElementById('file-name-display').textContent='';
@@ -994,11 +1001,19 @@ window.selectType=selectType;
 
 function handleFile(ev) {
   const f=ev.target.files[0]; if(!f) return;
+  document.getElementById('f-file-path').value='';
   const reader=new FileReader();
   reader.onload=(evt)=>{ attachedFile={name:f.name,dataUrl:evt.target.result}; document.getElementById('file-name-display').textContent='📎 '+f.name; };
   reader.readAsDataURL(f);
 }
 window.handleFile=handleFile;
+
+function handleFilePath(ev) {
+  const path=ev.target.value.trim();
+  if(path){ const name=path.split('/').pop(); attachedFile={name,path}; document.getElementById('file-name-display').textContent='📎 '+name; document.getElementById('f-file').value=''; }
+  else{ attachedFile=null; document.getElementById('file-name-display').textContent=''; }
+}
+window.handleFilePath=handleFilePath;
 
 async function saveEntry() {
   const desc=document.getElementById('f-desc').value.trim();
